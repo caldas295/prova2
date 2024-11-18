@@ -1,15 +1,15 @@
 import os
 import requests
 import pyodbc
-from flask import Flask, request, jsonify
-_name_ = "_name_";
-app = Flask(_name_)
+from flask import Flask, request, jsonify, send_from_directory
+
+app = Flask(__name__)
 
 # Configurações
 COGNITIVE_ENDPOINT = "https://brazilsouth.api.cognitive.microsoft.com/"
 COGNITIVE_KEY = "54b90dfa62ed46cd941bf1bfb2e5908b"
-FOTO_DIR = r"\\<ip_vm_windows>\fotos"  # Compartilhamento de rede ou local
-DOC_DIR = r"\\<ip_vm_linux>\documentos"  # Compartilhamento de rede ou local
+FOTO_DIR = r"\\191.232.245.246\fotos"  # Compartilhamento de rede ou local
+DOC_DIR = r"\\191.234.213.204\documentos"  # Compartilhamento de rede ou local
 
 # Conexão com Azure SQL Database
 DB_CONNECTION_STRING = (
@@ -19,6 +19,11 @@ DB_CONNECTION_STRING = (
     "UID=adminuser;"
     "PWD=SuaSenhaForte123!;"
 )
+
+# Rota para servir arquivos estáticos
+@app.route("/<path:filename>")
+def serve_static(filename):
+    return send_from_directory(".", filename)
 
 # Função para verificar a presença de uma pessoa na imagem
 def verificar_imagem(foto_path):
@@ -39,9 +44,9 @@ def verificar_imagem(foto_path):
         descriptions = analysis["description"]["tags"]
         return "person" in descriptions
 
-# Rota para processar dados
+# Rota para salvar um registro
 @app.route("/submit", methods=["POST"])
-def processar_dados():
+def salvar_registro():
     nome = request.form.get("nome")
     idade = request.form.get("idade")
     email = request.form.get("email")
@@ -78,7 +83,31 @@ def processar_dados():
     except Exception as e:
         return jsonify({"error": f"Erro ao salvar no banco de dados: {str(e)}"}), 500
 
-    return jsonify({"message": "Dados processados com sucesso"}), 200
+    return jsonify({"message": "Registro criado com sucesso"}), 200
 
-if _name_ == "_name_":
+# Rota para consultar registros
+@app.route("/registros", methods=["GET"])
+def listar_registros():
+    try:
+        conn = pyodbc.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, nome, idade, email, foto_path, documento_path FROM usuarios")
+        registros = [
+            {
+                "id": row[0],
+                "nome": row[1],
+                "idade": row[2],
+                "email": row[3],
+                "foto": row[4],
+                "documento": row[5]
+            }
+            for row in cursor.fetchall()
+        ]
+        cursor.close()
+        conn.close()
+        return jsonify(registros)
+    except Exception as e:
+        return jsonify({"error": f"Erro ao consultar o banco de dados: {str(e)}"}), 500
+
+if __name__ == "__main__":
     app.run(debug=True)
