@@ -1,113 +1,126 @@
+from flask import Flask, request, render_template, jsonify
 import os
-import requests
+import uuid
+import shutil
 import pyodbc
-from flask import Flask, request, jsonify, send_from_directory
+from azure.cognitiveservices.vision.face import FaceClient
+from msrest.authentication import CognitiveServicesCredentials
 
+# Configurações do Flask
 app = Flask(__name__)
 
-# Configurações
-COGNITIVE_ENDPOINT = "https://brazilsouth.api.cognitive.microsoft.com/"
-COGNITIVE_KEY = "54b90dfa62ed46cd941bf1bfb2e5908b"
-FOTO_DIR = r"\\191.232.245.246\fotos"  # Compartilhamento de rede ou local
-DOC_DIR = r"\\191.234.213.204\documentos"  # Compartilhamento de rede ou local
+# Configurações do Azure
+ENDPOINT = "https://brazilsouth.api.cognitive.microsoft.com/"
+KEY = "54b90dfa62ed46cd941bf1bfb2e5908b"
+face_client = FaceClient(ENDPOINT, CognitiveServicesCredentials(KEY))
 
-# Conexão com Azure SQL Database
-DB_CONNECTION_STRING = (
-    "Driver={SQL Server};"
-    "SERVER=sever1142233472-1142831584.database.windows.net;"
-    "DATABASE=BancoDosCria ;"
-    "UID=adminuser;"
-    "PWD=SuaSenhaForte123!;"
-)
+# Configurações do Banco de Dados
+server = 'sever1142233472-1142831584.database.windows.net'
+database = 'BancoDosCria'
+username = 'adminuser'
+password = 'SuaSenhaForte123!'
+driver = '{SQL Server}'
 
-# Rota para servir arquivos estáticos
-@app.route("/<path:filename>")
-def serve_static(filename):
-    return send_from_directory(".", filename)
+# Caminhos compartilhados
+WINDOWS_SHARED_PATH = r"\\191.232.170.155\fotos"
+LINUX_SHARED_PATH = r"\\191.234.180.95\SharedFolder"
 
-# Função para verificar a presença de uma pessoa na imagem
-def verificar_imagem(foto_path):
-    with open(foto_path, "rb") as foto:
-        headers = {
-            "Ocp-Apim-Subscription-Key": COGNITIVE_KEY,
-            "Content-Type": "application/octet-stream",
-        }
-        params = {"visualFeatures": "Description"}
-        response = requests.post(
-            f"{COGNITIVE_ENDPOINT}/vision/v3.1/analyze",
-            headers=headers,
-            params=params,
-            data=foto,
+# Função para conectar ao banco de dados
+def get_db_connection():
+    conn = pyodbc.connect(
+        f"DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}"
+    )
+    return conn
+
+# Função para detectar rostos na imagem
+def detect_faces(image_path):
+    with open(image_path, 'rb') as image_stream:
+        detected_faces = face_client.face.detect_with_stream(
+            image=image_stream,
+            detection_model="detection_01",
+            recognition_model="recognition_04",
+            return_face_id=False
         )
-        response.raise_for_status()
-        analysis = response.json()
-        descriptions = analysis["description"]["tags"]
-        return "person" in descriptions
+    return len(detected_faces)
 
-# Rota para salvar um registro
+# Rotas
+@app.route("/", methods=["GET"])
+def home():
+    return render_template("home.html")
+
+@app.route("/criar", methods=["GET"])
+def criar_registro():
+    return render_template("criar_registro.html")
+
+@app.route("/consultar", methods=["GET"])
+def consultar_registros():
+    return render_template("consultar_registros.html")
+
 @app.route("/submit", methods=["POST"])
-def salvar_registro():
-    nome = request.form.get("nome")
-    idade = request.form.get("idade")
-    email = request.form.get("email")
-    foto = request.files.get("foto")
-    documento = request.files.get("documento")
-
-    if not all([nome, idade, email, foto, documento]):
-        return jsonify({"error": "Todos os campos são obrigatórios"}), 400
-
-    # Salvar foto e verificar presença de pessoa
-    foto_path = os.path.join(FOTO_DIR, foto.filename)
-    foto.save(foto_path)
-    if not verificar_imagem(foto_path):
-        return jsonify({"error": "A imagem não contém uma pessoa"}), 400
-
-    # Salvar documento
-    documento_path = os.path.join(DOC_DIR, documento.filename)
-    documento.save(documento_path)
-
-    # Salvar dados no banco de dados
+def submit():
     try:
-        conn = pyodbc.connect(DB_CONNECTION_STRING)
+        # Verifica se os arquivos foram enviados
+        if 'foto' not in request.files or 'documento' not in request.files:
+            return jsonify({"error": "Foto ou documento não enviados."}), 400
+
+        foto = request.files['foto']
+        documento = request.files['documento']
+
+        # Verifica se os campos obrigatórios estão preenchidos
+        nome = request.form.get("nome")
+        email = request.form.get("email")
+        if not nome or not email:
+            return jsonify({"error": "Campos obrigatórios ausentes."}), 400
+
+        # Gera nomes únicos para os arquivos
+        foto_filename = f"{uuid.uuid4()}_{foto.filename}"
+        documento_filename = f"{uuid.uuid4()}_{documento.filename}"
+
+        # Salva os arquivos nos compartilhamentos remotos
+        foto_path = os.path.join(WINDOWS_SHARED_PATH, foto_filename)
+        documento_path = os.path.join(LINUX_SHARED_PATH, documento_filename)
+
+        with open(foto_path, 'wb') as img_file:
+            shutil.copyfileobj(foto.stream, img_file)
+
+        with open(documento_path, 'wb') as doc_file:
+            shutil.copyfileobj(documento.stream, doc_file)
+
+        # Detecta rostos na imagem
+        face_count = detect_faces(foto_path)
+        validacao_cognitiva = face_count > 0
+
+        # Insere os dados no banco de dados
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            """
-            INSERT INTO usuarios (nome, idade, email, foto_path, documento_path)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            nome, idade, email, foto_path, documento_path
+            '''INSERT INTO Usuario (Nome, Email, Foto, Documento, ValidacaoCognitivo, QuantidadeRostos)
+               VALUES (?, ?, ?, ?, ?, ?)''',
+            (nome, email, foto_path, documento_path, validacao_cognitiva, face_count)
         )
         conn.commit()
-        cursor.close()
         conn.close()
+
+        return jsonify({"message": "Registro criado com sucesso!"}), 201
     except Exception as e:
-        return jsonify({"error": f"Erro ao salvar no banco de dados: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
-    return jsonify({"message": "Registro criado com sucesso"}), 200
-
-# Rota para consultar registros
 @app.route("/registros", methods=["GET"])
-def listar_registros():
+def registros():
     try:
-        conn = pyodbc.connect(DB_CONNECTION_STRING)
+        conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, nome, idade, email, foto_path, documento_path FROM usuarios")
-        registros = [
-            {
-                "id": row[0],
-                "nome": row[1],
-                "idade": row[2],
-                "email": row[3],
-                "foto": row[4],
-                "documento": row[5]
-            }
-            for row in cursor.fetchall()
-        ]
-        cursor.close()
+        cursor.execute("SELECT ID, Nome, Email, Foto, Documento FROM Usuario")
+        rows = cursor.fetchall()
         conn.close()
+
+        registros = [
+            {"id": row[0], "nome": row[1], "email": row[2], "foto": row[3], "documento": row[4]}
+            for row in rows
+        ]
         return jsonify(registros)
     except Exception as e:
-        return jsonify({"error": f"Erro ao consultar o banco de dados: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
