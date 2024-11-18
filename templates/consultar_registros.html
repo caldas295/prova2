@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consultar Registros</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border: 1px solid #ccc;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+    </style>
+</head>
+<body>
+    <h1>Consultar Registros</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nome</th>
+                <th>Idade</th>
+                <th>Email</th>
+                <th>Foto</th>
+                <th>Documento</th>
+            </tr>
+        </thead>
+        <tbody id="registrosTable">
+            <!-- Os registros serão inseridos aqui -->
+        </tbody>
+    </table>
+
+    <script>
+        async function carregarRegistros() {
+            try {
+                const response = await fetch("http://localhost:5000/registros");
+                const registros = await response.json();
+
+                const tabela = document.getElementById("registrosTable");
+                tabela.innerHTML = ""; // Limpa a tabela antes de preencher
+
+                registros.forEach(registro => {
+                    const linha = document.createElement("tr");
+
+                    linha.innerHTML = `
+                        <td>${registro.id}</td>
+                        <td>${registro.nome}</td>
+                        <td>${registro.idade}</td>
+                        <td>${registro.email}</td>
+                        <td><a href="${registro.foto}" target="_blank">Ver Foto</a></td>
+                        <td><a href="${registro.documento}" target="_blank">Ver Documento</a></td>
+                    `;
+
+                    tabela.appendChild(linha);
+                });
+            } catch (error) {
+                alert("Erro ao carregar registros: " + error.message);
+            }
+        }
+
+        // Carregar os registros ao carregar a página
+        document.addEventListener("DOMContentLoaded", carregarRegistros);
+    </script>
+</body>
+</html>
