@@ -1,139 +1,84 @@
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
-from PIL import Image, ImageTk
 import os
+import requests
 import pyodbc
+from flask import Flask, request, jsonify
+_name_ = "_name_";
+app = Flask(_name_)
 
-# Configuração da conexão com o banco de dados
-CONN_STRING = (
+# Configurações
+COGNITIVE_ENDPOINT = "https://brazilsouth.api.cognitive.microsoft.com/"
+COGNITIVE_KEY = "54b90dfa62ed46cd941bf1bfb2e5908b"
+FOTO_DIR = r"\\<ip_vm_windows>\fotos"  # Compartilhamento de rede ou local
+DOC_DIR = r"\\<ip_vm_linux>\documentos"  # Compartilhamento de rede ou local
+
+# Conexão com Azure SQL Database
+DB_CONNECTION_STRING = (
     "Driver={SQL Server};"
-    "Server=servidor11422334721142831584.database.windows.net;"  # Substitua pelo nome do servidor
-    "Database=bancodados11422334721142831584;"  # Substitua pelo nome do banco de dados
-    "UID=usuarioAdmin;"  # Substitua pelo nome de usuário
-    "PWD=Novembro@2024;"  # Substitua pela senha
+    "SERVER=sever1142233472-1142831584.database.windows.net;"
+    "DATABASE=BancoDosCria ;"
+    "UID=adminuser;"
+    "PWD=SuaSenhaForte123!;"
 )
 
-# Janela principal
-class App:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Sistema de Cadastro e Consulta")
-        self.foto_path = None
-        self.doc_path = None
+# Função para verificar a presença de uma pessoa na imagem
+def verificar_imagem(foto_path):
+    with open(foto_path, "rb") as foto:
+        headers = {
+            "Ocp-Apim-Subscription-Key": COGNITIVE_KEY,
+            "Content-Type": "application/octet-stream",
+        }
+        params = {"visualFeatures": "Description"}
+        response = requests.post(
+            f"{COGNITIVE_ENDPOINT}/vision/v3.1/analyze",
+            headers=headers,
+            params=params,
+            data=foto,
+        )
+        response.raise_for_status()
+        analysis = response.json()
+        descriptions = analysis["description"]["tags"]
+        return "person" in descriptions
 
-        # Conexão com o banco de dados
-        self.conn = self.conectar_banco()
+# Rota para processar dados
+@app.route("/submit", methods=["POST"])
+def processar_dados():
+    nome = request.form.get("nome")
+    idade = request.form.get("idade")
+    email = request.form.get("email")
+    foto = request.files.get("foto")
+    documento = request.files.get("documento")
 
-        # Criação de abas
-        self.tab_control = ttk.Notebook(root)
-        self.tab_cadastro = ttk.Frame(self.tab_control)
-        self.tab_consulta = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.tab_cadastro, text="Cadastro")
-        self.tab_control.add(self.tab_consulta, text="Consulta")
-        self.tab_control.pack(expand=1, fill="both")
+    if not all([nome, idade, email, foto, documento]):
+        return jsonify({"error": "Todos os campos são obrigatórios"}), 400
 
-        # Tela de Cadastro
-        self.build_tela_cadastro()
+    # Salvar foto e verificar presença de pessoa
+    foto_path = os.path.join(FOTO_DIR, foto.filename)
+    foto.save(foto_path)
+    if not verificar_imagem(foto_path):
+        return jsonify({"error": "A imagem não contém uma pessoa"}), 400
 
-        # Tela de Consulta
-        self.build_tela_consulta()
+    # Salvar documento
+    documento_path = os.path.join(DOC_DIR, documento.filename)
+    documento.save(documento_path)
 
-    def conectar_banco(self):
-        try:
-            conn = pyodbc.connect(CONN_STRING)
-            print("Conexão com o banco de dados bem-sucedida!")
-            return conn
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao conectar ao banco de dados: {e}")
-            exit()
+    # Salvar dados no banco de dados
+    try:
+        conn = pyodbc.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO usuarios (nome, idade, email, foto_path, documento_path)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            nome, idade, email, foto_path, documento_path
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        return jsonify({"error": f"Erro ao salvar no banco de dados: {str(e)}"}), 500
 
-    def build_tela_cadastro(self):
-        ttk.Label(self.tab_cadastro, text="Nome:").grid(row=0, column=0, padx=10, pady=5)
-        self.entry_nome = ttk.Entry(self.tab_cadastro)
-        self.entry_nome.grid(row=0, column=1, padx=10, pady=5)
+    return jsonify({"message": "Dados processados com sucesso"}), 200
 
-        ttk.Label(self.tab_cadastro, text="Idade:").grid(row=1, column=0, padx=10, pady=5)
-        self.entry_idade = ttk.Entry(self.tab_cadastro)
-        self.entry_idade.grid(row=1, column=1, padx=10, pady=5)
-
-        ttk.Label(self.tab_cadastro, text="E-mail:").grid(row=2, column=0, padx=10, pady=5)
-        self.entry_email = ttk.Entry(self.tab_cadastro)
-        self.entry_email.grid(row=2, column=1, padx=10, pady=5)
-
-        ttk.Button(self.tab_cadastro, text="Anexar Foto", command=self.anexar_foto).grid(row=3, column=0, padx=10, pady=5)
-        ttk.Button(self.tab_cadastro, text="Anexar Documento", command=self.anexar_documento).grid(row=3, column=1, padx=10, pady=5)
-
-        ttk.Button(self.tab_cadastro, text="Salvar", command=self.salvar).grid(row=4, column=0, columnspan=2, pady=10)
-
-    def build_tela_consulta(self):
-        self.tree = ttk.Treeview(self.tab_consulta, columns=("id", "nome", "idade", "email"), show="headings")
-        self.tree.heading("id", text="ID")
-        self.tree.heading("nome", text="Nome")
-        self.tree.heading("idade", text="Idade")
-        self.tree.heading("email", text="E-mail")
-        self.tree.grid(row=0, column=0, columnspan=2, padx=10, pady=10)
-
-        ttk.Button(self.tab_consulta, text="Atualizar Lista", command=self.carregar_dados).grid(row=1, column=0, pady=5)
-
-    def anexar_foto(self):
-        self.foto_path = filedialog.askopenfilename(filetypes=[("Imagem", "*.png;*.jpg;*.jpeg")])
-        if self.foto_path:
-            messagebox.showinfo("Foto", "Foto anexada com sucesso!")
-
-    def anexar_documento(self):
-        self.doc_path = filedialog.askopenfilename(filetypes=[("Documento", "*.pdf;*.docx")])
-        if self.doc_path:
-            messagebox.showinfo("Documento", "Documento anexado com sucesso!")
-
-    def salvar(self):
-        nome = self.entry_nome.get()
-        idade = self.entry_idade.get()
-        email = self.entry_email.get()
-
-        if not nome or not idade or not email:
-            messagebox.showerror("Erro", "Preencha todos os campos!")
-            return
-
-        try:
-            with open(self.foto_path, "rb") as f:
-                foto_bin = f.read()
-
-            with open(self.doc_path, "rb") as d:
-                doc_bin = d.read()
-
-            cursor = self.conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO Usuario (Nome, Idade, Email, Foto, Documento)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (nome, idade, email, foto_bin, doc_bin),
-            )
-            self.conn.commit()
-            messagebox.showinfo("Sucesso", "Dados salvos com sucesso!")
-            self.entry_nome.delete(0, tk.END)
-            self.entry_idade.delete(0, tk.END)
-            self.entry_email.delete(0, tk.END)
-            self.foto_path = None
-            self.doc_path = None
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao salvar os dados: {e}")
-
-    def carregar_dados(self):
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT ID, Nome, Idade, Email FROM Usuario")
-            for row in cursor.fetchall():
-                self.tree.insert("", tk.END, values=row)
-        except Exception as e:
-            messagebox.showerror("Erro", f"Erro ao carregar os dados: {e}")
-
-
-# Rodar o app
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = App(root)
-    root.mainloop()
+if _name_ == "_name_":
+    app.run(debug=True)
