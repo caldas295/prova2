@@ -1,4 +1,3 @@
 Flask==2.3.2
 pyodbc==4.0.35
 msrest==0.7.1
-shutil
