@@ -5,7 +5,7 @@ import shutil
 import pyodbc
 from azure.cognitiveservices.vision.face import FaceClient
 from msrest.authentication import CognitiveServicesCredentials
-
+# commit
 # Configurações do Flask
 app = Flask(__name__)
 
