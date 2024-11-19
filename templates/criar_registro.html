@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Criar Registro</title>
+</head>
+<body>
+    <h1>Criar Registro</h1>
+    <form action="/criarRegistroAzure" method="POST" enctype="multipart/form-data">
+        <label for="nome">Nome:</label>
+        <input type="text" name="nome" id="nome" required><br><br>
+
+        <label for="idade">Idade:</label>
+        <input type="number" name="idade" id="idade" required><br><br>
+
+        <label for="email">Email:</label>
+        <input type="email" name="email" id="email" required><br><br>
+
+        <label for="foto">Foto:</label>
+        <input type="file" name="foto" id="foto" required><br><br>
+
+        <label for="documento">Documento:</label>
+        <input type="file" name="documento" id="documento" required><br><br>
+
+        <button type="submit">Criar Registro</button>
+    </form>
+    <br>
+    <a href="/">Voltar para Home</a>
+</body>
+</html>
