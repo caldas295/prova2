@@ -10,7 +10,7 @@
             const registros = await response.json();
             const tabela = document.getElementById("tabela-registros");
 
-            tabela.innerHTML = "<tr><th>ID</th><th>Nome</th><th>Email</th><th>Foto</th><th>Documento</th><th>Quantidade de Rostos</th></tr>";
+            tabela.innerHTML = "<tr><th>ID</th><th>Nome</th><th>Email</th><th>Foto</th><th>Documento</th><th>Quantidade de Rostos</th><th>Tem pessoa na foto ?</th></tr>";
 
             registros.forEach(registro => {
                 const row = document.createElement("tr");
@@ -21,6 +21,7 @@
                     <td>${registro.foto}</td>
                     <td>${registro.documento}</td>
                     <td>${registro.quantidade_rostos}</td>
+                    <td>${registro.TemPessoaNaFoto}</td>
                 `;
                 tabela.appendChild(row);
             });
