@@ -9,11 +9,6 @@ from msrest.authentication import CognitiveServicesCredentials
 # Configurações do Flask
 app = Flask(__name__)
 
-# Configurações do Azure Cognitive Services
-ENDPOINT = "https://brazilsouth.api.cognitive.microsoft.com/"
-KEY = "54b90dfa62ed46cd941bf1bfb2e5908b"
-face_client = FaceClient(ENDPOINT, CognitiveServicesCredentials(KEY))
-
 # Configurações do Banco de Dados
 server = 'sever1142233472-1142831584.database.windows.net'
 database = 'BancoDosCria'
@@ -39,6 +34,12 @@ def get_db_connection():
         f"DRIVER={driver};SERVER={server};DATABASE={database};UID={username};PWD={password}"
     )
     return conn
+
+
+# Configurações do Azure Cognitive Services
+ENDPOINT = "https://brazilsouth.api.cognitive.microsoft.com/"
+KEY = "54b90dfa62ed46cd941bf1bfb2e5908b"
+face_client = FaceClient(ENDPOINT, CognitiveServicesCredentials(KEY))
 
 # Função para detectar rostos na imagem
 def detect_faces(image_path):
@@ -105,14 +106,15 @@ def criarRegistroAzure():
 
         # Detectar rostos
         face_count = detect_faces(foto_path)
+        temPessoaNaFoto = face_count > 0;
 
         # Salvar dados no banco
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            '''INSERT INTO Usuario (Nome, Email, Idade,Documento, Foto, QuantidadeRostos)
-               VALUES (?, ?, ?, ?, ?, ?)''',
-            (nome, email,idade,documento_path, foto_path, face_count)
+            '''INSERT INTO Usuario (Nome, Email, Idade,Documento, Foto, QuantidadeRostos, TemPessoaNaFoto)
+               VALUES (?, ?, ?, ?, ?, ?,?)''',
+            (nome, email,idade,documento_path, foto_path, face_count,temPessoaNaFoto)
         )
         conn.commit()
         conn.close()
@@ -128,7 +130,7 @@ def consultarDados():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT ID, Nome, Email, Foto, Documento, QuantidadeRostos FROM Usuario")
+        cursor.execute("SELECT ID, Nome, Email, Foto, Documento, QuantidadeRostos,TemPessoaNaFoto FROM Usuario")
         rows = cursor.fetchall()
         conn.close()
 
@@ -139,7 +141,8 @@ def consultarDados():
                 "email": row[2],
                 "foto": row[3],
                 "documento": row[4],
-                "quantidade_rostos": row[5]
+                "quantidade_rostos": row[5],
+                "TemPessoaNaFoto": row[6]
             }
             for row in rows
         ]
