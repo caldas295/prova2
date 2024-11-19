@@ -14,7 +14,7 @@ server = 'sever1142233472-1142831584.database.windows.net'
 database = 'BancoDosCria'
 username = 'adminuser'
 password = 'SuaSenhaForte123!'
-driver = '{SQL Server}'
+driver = '{ODBC Driver 17 for SQL Server}'
 
 # Caminhos compartilhados
 WINDOWS_SHARED_PATH = r"\\191.232.245.246\fotos"
