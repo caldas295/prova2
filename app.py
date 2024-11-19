@@ -1,15 +1,15 @@
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, jsonify, render_template
 import os
 import uuid
 import shutil
 import pyodbc
 from azure.cognitiveservices.vision.face import FaceClient
 from msrest.authentication import CognitiveServicesCredentials
-# commit
+
 # Configurações do Flask
 app = Flask(__name__)
 
-# Configurações do Azure
+# Configurações do Azure Cognitive Services
 ENDPOINT = "https://brazilsouth.api.cognitive.microsoft.com/"
 KEY = "54b90dfa62ed46cd941bf1bfb2e5908b"
 face_client = FaceClient(ENDPOINT, CognitiveServicesCredentials(KEY))
@@ -22,8 +22,16 @@ password = 'SuaSenhaForte123!'
 driver = '{SQL Server}'
 
 # Caminhos compartilhados
-WINDOWS_SHARED_PATH = r"\\191.232.170.155\fotos"
-LINUX_SHARED_PATH = r"\\191.234.180.95\SharedFolder"
+WINDOWS_SHARED_PATH = r"\\191.232.245.246\fotos"
+usuarioVMWindows = "azureuser"
+senhaVMWindows = "P@ssw0rd2024!"
+
+# Mapeia o compartilhamento de rede com autenticação
+def mapear_rede(caminho, usuario, senha):
+    comando = f'net use {caminho} /user:{usuarioVMWindows} {senhaVMWindows}'
+    os.system(comando)
+
+LINUX_SHARED_PATH = "//191.234.213.204/documentos/mnt/documentos"
 
 # Função para conectar ao banco de dados
 def get_db_connection():
@@ -43,82 +51,99 @@ def detect_faces(image_path):
         )
     return len(detected_faces)
 
-# Rotas
+# Rota principal (Página Inicial)
 @app.route("/", methods=["GET"])
-def home():
-    return render_template("home.html")
+def pagina_inicial():
+    return render_template("pagina_inicial.html")
 
+# Rota pagina de criar registro 
 @app.route("/criar", methods=["GET"])
-def criar_registro():
+def criar_registro_pagina():
     return render_template("criar_registro.html")
 
+# Rota pagina de consultar registro 
 @app.route("/consultar", methods=["GET"])
-def consultar_registros():
-    return render_template("consultar_registros.html")
+def consultar_Registro_pagina():
+    return render_template("Consultar_Registro.html")
 
-@app.route("/submit", methods=["POST"])
-def submit():
+# Função para criar registro no Azure
+@app.route("/criarRegistroAzure", methods=["POST"])
+def criarRegistroAzure():
     try:
-        # Verifica se os arquivos foram enviados
         if 'foto' not in request.files or 'documento' not in request.files:
             return jsonify({"error": "Foto ou documento não enviados."}), 400
 
         foto = request.files['foto']
         documento = request.files['documento']
-
-        # Verifica se os campos obrigatórios estão preenchidos
         nome = request.form.get("nome")
         email = request.form.get("email")
+        idade = request.form.get("idade")
+
         if not nome or not email:
             return jsonify({"error": "Campos obrigatórios ausentes."}), 400
 
-        # Gera nomes únicos para os arquivos
+        # Gerar nomes únicos
         foto_filename = f"{uuid.uuid4()}_{foto.filename}"
         documento_filename = f"{uuid.uuid4()}_{documento.filename}"
 
-        # Salva os arquivos nos compartilhamentos remotos
+        mapear_rede(WINDOWS_SHARED_PATH, usuarioVMWindows, senhaVMWindows)
+
+        # Salvar arquivos
+        print('WINDOWS_SHARED_PATH>>>>'+ WINDOWS_SHARED_PATH)
         foto_path = os.path.join(WINDOWS_SHARED_PATH, foto_filename)
+
+        # Criar diretório se necessário
+        if not os.path.exists(WINDOWS_SHARED_PATH):
+            os.makedirs(WINDOWS_SHARED_PATH)
+
         documento_path = os.path.join(LINUX_SHARED_PATH, documento_filename)
 
         with open(foto_path, 'wb') as img_file:
             shutil.copyfileobj(foto.stream, img_file)
+        # with open(documento_path, 'wb') as doc_file:
+        #     shutil.copyfileobj(documento.stream, doc_file)
 
-        with open(documento_path, 'wb') as doc_file:
-            shutil.copyfileobj(documento.stream, doc_file)
-
-        # Detecta rostos na imagem
+        # Detectar rostos
         face_count = detect_faces(foto_path)
-        validacao_cognitiva = face_count > 0
 
-        # Insere os dados no banco de dados
+        # Salvar dados no banco
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            '''INSERT INTO Usuario (Nome, Email, Foto, Documento, ValidacaoCognitivo, QuantidadeRostos)
+            '''INSERT INTO Usuario (Nome, Email, Idade,Documento, Foto, QuantidadeRostos)
                VALUES (?, ?, ?, ?, ?, ?)''',
-            (nome, email, foto_path, documento_path, validacao_cognitiva, face_count)
+            (nome, email,idade,documento_path, foto_path, face_count)
         )
         conn.commit()
         conn.close()
 
         return jsonify({"message": "Registro criado com sucesso!"}), 201
     except Exception as e:
+        print('error>>>>'+ str(e))
         return jsonify({"error": str(e)}), 500
 
-@app.route("/registros", methods=["GET"])
-def registros():
+# Função para consultar dados no banco
+@app.route("/consultarDados", methods=["GET"])
+def consultarDados():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT ID, Nome, Email, Foto, Documento FROM Usuario")
+        cursor.execute("SELECT ID, Nome, Email, Foto, Documento, QuantidadeRostos FROM Usuario")
         rows = cursor.fetchall()
         conn.close()
 
         registros = [
-            {"id": row[0], "nome": row[1], "email": row[2], "foto": row[3], "documento": row[4]}
+            {
+                "id": row[0],
+                "nome": row[1],
+                "email": row[2],
+                "foto": row[3],
+                "documento": row[4],
+                "quantidade_rostos": row[5]
+            }
             for row in rows
         ]
-        return jsonify(registros)
+        return jsonify(registros), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
